@@ -1,0 +1,407 @@
+// ============================================================================
+// SRE Optimization Engine — Sample Dashboard Queries
+// ============================================================================
+// Ready-to-use KQL queries organized by dashboard page.
+// Run against the SREOptimization database on your FinOps Hub ADX cluster.
+//
+// Cross-database queries reference:
+//   database('Hub').Costs     — FOCUS cost data (EffectiveCost, ResourceId, etc.)
+//   database('Hub').Prices    — FOCUS pricing data
+// ============================================================================
+
+
+// ############################################################################
+// PAGE 1: OPTIMIZATION OVERVIEW
+// ############################################################################
+
+// --- 1.1: Executive KPIs (single-value tiles) ---
+
+// Total estimated monthly savings across all domains
+ActiveRecommendations
+| summarize TotalMonthlySavingsUSD = sum(EstimatedSavingsMonthlyUSD)
+
+// Total findings count by severity
+ActiveRecommendations
+| summarize
+    Critical = countif(Severity == 'Critical'),
+    High     = countif(Severity == 'High'),
+    Medium   = countif(Severity == 'Medium'),
+    Low      = countif(Severity == 'Low'),
+    Total    = count()
+
+// Savings by domain (pie chart / donut)
+ActiveRecommendations
+| summarize
+    Findings = count(),
+    MonthlySavingsUSD = sum(EstimatedSavingsMonthlyUSD)
+    by Domain
+| order by MonthlySavingsUSD desc
+
+// --- 1.2: Recommendations by category (stacked bar) ---
+ActiveRecommendations
+| summarize
+    Count = count(),
+    SavingsUSD = sum(EstimatedSavingsMonthlyUSD)
+    by Domain, Category
+| order by Domain asc, SavingsUSD desc
+
+// --- 1.3: Top 10 savings opportunities (table) ---
+ActiveRecommendations
+| top 10 by EstimatedSavingsMonthlyUSD desc
+| project
+    ResourceName,
+    ResourceType,
+    Domain,
+    Category,
+    Severity,
+    CurrentState,
+    RecommendedAction,
+    FitScore,
+    EstimatedSavingsMonthlyUSD,
+    Risk,
+    Location
+
+// --- 1.4: Scan health summary (last run per domain) ---
+LatestScans
+| project
+    ScanType,
+    ScanDate,
+    Status,
+    ResourcesScanned,
+    FindingsCount,
+    EstimatedSavingsMonthlyUSD,
+    ScanDurationSeconds,
+    DataGaps
+
+
+// ############################################################################
+// PAGE 2: SAVINGS TREND
+// ############################################################################
+
+// --- 2.1: Projected savings over time (line chart) ---
+Scans
+| where Status == 'completed'
+| summarize
+    ProjectedMonthlySavingsUSD = sum(EstimatedSavingsMonthlyUSD),
+    TotalFindings = sum(FindingsCount)
+    by ScanWeek = startofweek(ScanDate)
+| order by ScanWeek asc
+
+// --- 2.2: Projected savings by domain over time (area chart) ---
+Recommendations
+| where ImplementationStatus in ('pending', 'accepted')
+| summarize
+    MonthlySavingsUSD = sum(EstimatedSavingsMonthlyUSD)
+    by ScanWeek = startofweek(ScanDate), Domain
+| order by ScanWeek asc, Domain asc
+
+// --- 2.3: Projected vs. realized savings (dual-axis line chart) ---
+SavingsTracking
+| summarize
+    ProjectedUSD = sum(ProjectedSavingsMonthlyUSD),
+    RealizedUSD  = sum(RealizedSavingsUSD)
+    by TrackingMonth = startofmonth(TrackingDate)
+| extend AccuracyPct = iff(ProjectedUSD > 0, round(RealizedUSD / ProjectedUSD * 100, 1), 0.0)
+| order by TrackingMonth asc
+
+// --- 2.4: Implementation funnel (bar chart) ---
+Recommendations
+| where ScanDate > ago(90d)
+| summarize Count = count() by ImplementationStatus
+| order by Count desc
+
+// --- 2.5: Savings accuracy distribution (histogram) ---
+SavingsTracking
+| where Status == 'realized'
+| extend AccuracyBucket = case(
+    SavingsAccuracy >= 120, "Over-estimated (>120%)",
+    SavingsAccuracy >= 90,  "Accurate (90-120%)",
+    SavingsAccuracy >= 50,  "Under-estimated (50-90%)",
+    "Missed (<50%)")
+| summarize Count = count() by AccuracyBucket
+
+
+// ############################################################################
+// PAGE 3: COST CORRELATION (cross-database with FinOps Hub)
+// ############################################################################
+
+// --- 3.1: Recommendations with actual FOCUS cost data ---
+ActiveRecommendations
+| join kind=leftouter (
+    database('Hub').Costs
+    | where ChargePeriodStart >= ago(30d)
+    | where PricingCategory == 'On-Demand'
+    | summarize
+        ActualMonthlyCostUSD = sum(EffectiveCost),
+        BillingCurrency = take_any(BillingCurrency)
+        by ResourceId
+) on ResourceId
+| extend SavingsPctOfActual = iff(
+    ActualMonthlyCostUSD > 0,
+    round(EstimatedSavingsMonthlyUSD / ActualMonthlyCostUSD * 100, 1),
+    0.0)
+| project
+    ResourceName,
+    Domain,
+    Category,
+    EstimatedSavingsMonthlyUSD,
+    ActualMonthlyCostUSD,
+    SavingsPctOfActual,
+    CurrentState,
+    RecommendedAction,
+    FitScore
+| order by ActualMonthlyCostUSD desc
+
+// --- 3.2: Top spending resources without optimization recommendations ---
+database('Hub').Costs
+| where ChargePeriodStart >= ago(30d)
+| where PricingCategory == 'On-Demand'
+| where ServiceCategory in ('Compute', 'Storage', 'Networking')
+| summarize MonthlyCostUSD = sum(EffectiveCost) by ResourceId, ResourceName
+| join kind=leftanti (
+    ActiveRecommendations
+    | project ResourceId
+) on ResourceId
+| top 20 by MonthlyCostUSD desc
+| project ResourceName, MonthlyCostUSD, Message = "No optimization findings — review manually or already optimized"
+
+// --- 3.3: Cost breakdown by FOCUS ServiceCategory for scanned resources ---
+ActiveRecommendations
+| distinct ResourceId, Domain
+| join kind=inner (
+    database('Hub').Costs
+    | where ChargePeriodStart >= ago(30d)
+    | summarize MonthlyCostUSD = sum(EffectiveCost) by ResourceId, ServiceCategory
+) on ResourceId
+| summarize
+    TotalCostUSD = sum(MonthlyCostUSD)
+    by ServiceCategory, Domain
+| order by TotalCostUSD desc
+
+// --- 3.4: Subscription cost vs. savings potential (scatter plot) ---
+database('Hub').Costs
+| where ChargePeriodStart >= ago(30d)
+| summarize TotalCostUSD = sum(EffectiveCost) by SubAccountName
+| join kind=leftouter (
+    ActiveRecommendations
+    | summarize PotentialSavingsUSD = sum(EstimatedSavingsMonthlyUSD) by SubAccountName
+) on SubAccountName
+| extend PotentialSavingsUSD = coalesce(PotentialSavingsUSD, 0.0)
+| extend SavingsPct = iff(TotalCostUSD > 0, round(PotentialSavingsUSD / TotalCostUSD * 100, 1), 0.0)
+| project SubAccountName, TotalCostUSD, PotentialSavingsUSD, SavingsPct
+
+
+// ############################################################################
+// PAGE 4: COMPUTE DEEP-DIVE
+// ############################################################################
+
+// --- 4.1: FitScore distribution (histogram) ---
+FitScoreDistribution
+
+// --- 4.2: FitScore breakdown for a specific VM (detail panel) ---
+// Replace <resource-id> with the target VM's ARM resource ID
+ActiveRecommendations
+| where Domain == 'compute'
+| where Category == 'rightsizing'
+| where ResourceId == '<resource-id>'
+| project
+    ResourceName,
+    CurrentState,
+    RecommendedAction,
+    FitScore,
+    FitScoreBreakdown,
+    Evidence,
+    EstimatedSavingsMonthlyUSD
+
+// --- 4.3: SKU migration tracking (sankey / table) ---
+ActiveRecommendations
+| where Domain == 'compute' and Category == 'rightsizing'
+| extend
+    CurrentFamily = extract(@'^[A-Za-z]+', 0, extract(@'Standard_(.+)', 1, CurrentState)),
+    TargetFamily  = extract(@'^[A-Za-z]+', 0, extract(@'Standard_(.+)', 1, RecommendedAction))
+| summarize
+    Count = count(),
+    TotalSavingsUSD = sum(EstimatedSavingsMonthlyUSD)
+    by CurrentFamily, TargetFamily
+| order by TotalSavingsUSD desc
+
+// --- 4.4: Generation upgrade opportunities ---
+ActiveRecommendations
+| where Domain == 'compute' and Category == 'generation-upgrade'
+| project
+    ResourceName,
+    CurrentState,
+    RecommendedAction,
+    FitScore,
+    EstimatedSavingsMonthlyUSD,
+    Risk,
+    Location
+
+// --- 4.5: Idle and deallocated VMs ---
+ActiveRecommendations
+| where Domain == 'compute'
+| where Category in ('idle-resource', 'orphan-cleanup')
+| project
+    ResourceName,
+    Category,
+    Severity,
+    CurrentState,
+    RecommendedAction,
+    EstimatedSavingsMonthlyUSD,
+    Evidence
+
+// --- 4.6: Spot VM eligibility summary ---
+ActiveRecommendations
+| where Domain == 'compute' and Category == 'spot-eligible'
+| project
+    ResourceName,
+    CurrentState,
+    InferredWorkload,
+    EstimatedSavingsMonthlyUSD,
+    Risk,
+    Evidence
+
+
+// ############################################################################
+// PAGE 5: RESOURCE HEALTH
+// ############################################################################
+
+// --- 5.1: Resource status breakdown (donut chart) ---
+ActiveRecommendations
+| summarize Count = count() by Category
+| order by Count desc
+
+// --- 5.2: Orphaned / unattached resources ---
+ActiveRecommendations
+| where Category == 'orphan-cleanup'
+| project
+    ResourceName,
+    ResourceType,
+    Domain,
+    Location,
+    CurrentState,
+    EstimatedSavingsMonthlyUSD,
+    Evidence
+
+// --- 5.3: Untagged / poorly-tagged resources ---
+ActiveRecommendations
+| where Category == 'tag-compliance'
+| project
+    ResourceName,
+    ResourceType,
+    ResourceGroup,
+    Tags,
+    RecommendedAction
+
+// --- 5.4: HA gap analysis ---
+ActiveRecommendations
+| where Category == 'ha-gap'
+| project
+    ResourceName,
+    ResourceType,
+    Domain,
+    Location,
+    CurrentState,
+    RecommendedAction,
+    Severity
+
+// --- 5.5: Resource inventory trend (line chart — weekly snapshots) ---
+ResourceSnapshots
+| summarize ResourceCount = dcount(ResourceId) by SnapshotWeek = startofweek(SnapshotDate), ResourceType
+| order by SnapshotWeek asc
+
+// --- 5.6: Power state breakdown (stacked bar — last snapshot) ---
+ResourceSnapshots
+| where SnapshotDate == toscalar(ResourceSnapshots | summarize max(SnapshotDate))
+| where ResourceType =~ 'microsoft.compute/virtualmachines'
+| summarize Count = count() by PowerState
+| order by Count desc
+
+
+// ############################################################################
+// PAGE 6: COMPLIANCE POSTURE
+// ############################################################################
+
+// --- 6.1: Governance findings trend (area chart) ---
+Recommendations
+| where Domain == 'governance'
+| summarize FindingCount = count() by ScanWeek = startofweek(ScanDate), Category
+| order by ScanWeek asc
+
+// --- 6.2: Current governance findings by category ---
+ActiveRecommendations
+| where Domain == 'governance'
+| summarize
+    Count = count(),
+    CriticalCount = countif(Severity == 'Critical')
+    by Category
+| order by CriticalCount desc, Count desc
+
+// --- 6.3: Credential expiry timeline ---
+ActiveRecommendations
+| where Category == 'credential-expiry'
+| project
+    ResourceName,
+    ResourceType,
+    Severity,
+    CurrentState,
+    RecommendedAction,
+    Evidence
+| order by Severity asc
+
+// --- 6.4: Tag compliance rate by subscription ---
+ActiveRecommendations
+| where Category == 'tag-compliance'
+| summarize NonCompliant = count() by SubAccountName
+| join kind=leftouter (
+    ResourceSnapshots
+    | where SnapshotDate == toscalar(ResourceSnapshots | summarize max(SnapshotDate))
+    | summarize TotalResources = dcount(ResourceId) by SubscriptionId
+) on $left.SubAccountName == $right.SubscriptionId
+| extend ComplianceRate = iff(TotalResources > 0, round((TotalResources - NonCompliant) * 100.0 / TotalResources, 1), 0.0)
+| project SubAccountName, TotalResources, NonCompliant, ComplianceRate
+
+
+// ############################################################################
+// PAGE 7: AGENT OPERATIONS
+// ############################################################################
+
+// --- 7.1: Agent activity timeline (bar chart) ---
+Scans
+| summarize
+    ScanCount = count(),
+    TotalFindings = sum(FindingsCount),
+    AvgDurationSec = avg(ScanDurationSeconds)
+    by ScanDay = startofday(ScanDate)
+| order by ScanDay asc
+
+// --- 7.2: Scan success rate ---
+Scans
+| where ScanDate > ago(30d)
+| summarize Count = count() by Status
+| extend Pct = round(Count * 100.0 / toscalar(Scans | where ScanDate > ago(30d) | count()), 1)
+
+// --- 7.3: AAU consumption trend ---
+AgentMetrics
+| where MetricName == 'aau_consumed'
+| summarize DailyAAU = sum(MetricValue) by MetricDay = startofday(MetricDate)
+| order by MetricDay asc
+
+// --- 7.4: Tool call distribution ---
+AgentMetrics
+| where MetricName == 'tool_calls'
+| extend ToolName = tostring(Dimensions.tool_name)
+| summarize TotalCalls = sum(tolong(MetricValue)) by ToolName
+| order by TotalCalls desc
+
+// --- 7.5: API error rate ---
+AgentMetrics
+| where MetricName == 'api_errors'
+| summarize ErrorCount = sum(tolong(MetricValue)) by MetricDay = startofday(MetricDate), SubagentName
+| order by MetricDay asc
+
+// --- 7.6: Data gap frequency ---
+Scans
+| where isnotempty(DataGaps)
+| summarize GapCount = count() by ScanType
+| order by GapCount desc

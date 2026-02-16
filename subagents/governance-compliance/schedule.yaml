@@ -1,0 +1,59 @@
+# Governance & Compliance Specialist — Scheduled Task
+# Runs weekly on Monday at 10:00 AM UTC
+
+schedule:
+  name: "Weekly Governance & Compliance Scan"
+  trigger: "0 10 * * 1"  # Every Monday at 10:00 AM UTC
+  description: >
+    Run weekly governance and compliance analysis across all accessible
+    subscriptions. Checks for expiring Entra ID credentials, outdated
+    ARM API versions, missing resource tags, non-cost Azure Advisor
+    recommendations, and unused RBAC assignments.
+  subagent: "Governance-Compliance-Specialist"
+  prompt: |
+    Perform a complete governance and compliance scan across all accessible subscriptions.
+
+    Execute the full workflow:
+
+    1. **Check expiring app credentials** — Query Microsoft Graph for all
+       app registrations. Inspect passwordCredentials and keyCredentials
+       for expiry dates. Flag:
+       - Expired credentials (endDateTime < today) → CRITICAL
+       - Expiring within 7 days → HIGH
+       - Expiring within 30 days → MEDIUM
+       - Also check service principal federated credentials
+       - Record app display name, appId, credential type, key ID, and
+         expiry date for each finding
+
+    2. **Audit ARM API versions** — Query Resource Graph for all resources
+       and their API versions. For each resource type, compare the version
+       in use against the latest stable version. Flag API versions that
+       are more than 2 years old. Flag preview API versions where a newer
+       stable version exists.
+
+    3. **Check tag compliance** — Query for resources missing required tags
+       (Environment, CostCenter, Owner, Application). Group findings by
+       resource group. Detect inconsistent tag values (capitalization and
+       spelling variations). Exclude resource types that don't support tags.
+
+    4. **Collect Azure Advisor recommendations** — Query Advisor for
+       Security, HighAvailability, Performance, and OperationalExcellence
+       recommendations. Extract category, impact, affected resource, problem
+       summary, and recommended action. Exclude dismissed/postponed items.
+
+    5. **Detect unused RBAC assignments** — Find:
+       - Orphaned assignments (principal no longer exists in Entra ID)
+       - Stale broad-scope assignments (subscription-level Owner/Contributor
+         older than 180 days)
+       - Duplicate assignments (inherited + direct for same principal/role)
+       - Service principals with expired credentials but active RBAC
+
+    6. **Report** — Generate a structured report with:
+       - Executive summary (credentials expiring, expired, outdated APIs,
+         missing tags, Advisor counts by category, RBAC findings)
+       - Recommendations grouped by category
+       - Sorted by severity within each category
+       - Specific remediation guidance for each finding
+
+    Send the report via email to the platform engineering team.
+    Subject line: "Weekly Governance & Compliance Report — [date]"

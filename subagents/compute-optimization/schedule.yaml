@@ -1,0 +1,61 @@
+# Compute Optimization Specialist — Scheduled Task
+# Runs weekly on Monday at 6:00 AM UTC
+
+schedule:
+  name: "Weekly Compute Optimization Scan"
+  trigger: "0 6 * * 1"  # Every Monday at 6:00 AM UTC
+  description: >
+    Run weekly compute optimization analysis across all accessible
+    subscriptions. Identifies VM rightsizing opportunities with FitScore
+    validation, detects idle/orphaned compute resources, and checks
+    high availability configuration.
+  subagent: "Compute-Optimization-Specialist"
+  prompt: |
+    Perform a complete compute optimization scan across all accessible subscriptions.
+
+    Execute the full workflow:
+
+    1. **Discover** — List all VMs and VMSS across accessible subscriptions
+       using Azure Resource Graph
+
+    2. **Advisor check** — Query Azure Advisor for cost rightsizing
+       recommendations targeting compute resources
+
+    3. **FitScore validation** — For each Advisor rightsizing recommendation:
+       - Look up target SKU capabilities (MaxDataDiskCount, MaxNetworkInterfaces,
+         UncachedDiskIOPS, UncachedDiskBytesPerSecond)
+       - Check hard constraints (disk count, NIC count)
+       - Query P99 metrics (CPU, memory, disk IOPS, disk throughput, network)
+         over the last 7 days
+       - Calculate FitScore (0–5)
+       - If FitScore ≤ 2, search for alternative SKUs that pass validation
+
+    4. **Idle resource detection** — Find:
+       - VMs deallocated for 30+ days (flag for deletion)
+       - VMs in "Stopped (not deallocated)" state (CRITICAL — still billing)
+
+    5. **High availability check** — Find running VMs not in availability
+       sets or availability zones
+
+    6. **Savings estimation** — Calculate monthly and annual savings for
+       each recommendation using Azure Retail Prices API
+
+    7. **Report** — Generate a structured report with:
+       - Executive summary (total VMs, total findings, total savings)
+       - Recommendations grouped by resource group
+       - Sorted by severity then savings
+       - FitScore breakdown for every rightsizing recommendation
+
+    Deliver the report:
+    a. ALWAYS output the full report in the conversation.
+    b. REGARDLESS, save the full report to the
+       Knowledge Base using UploadKnowledgeDocument with title:
+       "Compute-Optimization-Report-[date]" — this ensures the
+       report is preserved even if the conversation is closed
+       (known issue: microsoft/sre-agent#67).
+    c. Both delivery methods MUST be used for every report.
+
+    ERROR HANDLING: If any Az CLI command hangs or returns an error,
+    skip that resource and continue. Note all failures in the report
+    under a "Data Gaps" section. Do NOT let a single failed query
+    block the entire scan.

@@ -1,0 +1,66 @@
+# Storage Optimization Specialist — Scheduled Task
+# Runs weekly on Monday at 7:00 AM UTC
+
+schedule:
+  name: "Weekly Storage Optimization Scan"
+  trigger: "0 7 * * 1"  # Every Monday at 7:00 AM UTC
+  description: >
+    Run weekly storage optimization analysis across all accessible
+    subscriptions. Identifies unattached managed disks, over-provisioned
+    premium storage, wrong blob access tiers, missing lifecycle policies,
+    and stale snapshots.
+  subagent: "Storage-Optimization-Specialist"
+  prompt: |
+    Perform a complete storage optimization scan across all accessible subscriptions.
+
+    Execute the full workflow:
+
+    1. **Discover managed disks** — List all managed disks across accessible
+       subscriptions using Azure Resource Graph. Record SKU, size, state,
+       provisioned IOPS/throughput, and attachment status.
+
+    2. **Detect unattached disks** — Find all managed disks where managedBy
+       is null and diskState is Unattached. For each, calculate monthly
+       cost via Azure Retail Prices API. Check Activity Log to determine
+       when the disk was last detached. Flag disks unattached for 30+ days
+       as deletion candidates (recommend snapshot-then-delete).
+
+    3. **Assess over-provisioned disks** — For each attached Premium_LRS,
+       PremiumV2_LRS, or UltraSSD_LRS disk:
+       - Query P99 IOPS and throughput over the last 7 days
+       - If P99 IOPS < 20% of provisioned diskIOPSReadWrite, flag as
+         over-provisioned
+       - Recommend the next lower disk tier where P99 ≤ 60% of provisioned
+       - Calculate savings as the price difference between current and
+         recommended tiers
+
+    4. **Discover storage accounts** — List all storage accounts via
+       Resource Graph. Record kind, SKU, access tier, and creation date.
+
+    5. **Detect wrong access tier** — For each Hot-tier storage account
+       with last-access-time tracking enabled:
+       - Identify containers/blobs with last access > 30 days → recommend Cool
+       - Identify containers/blobs with last access > 90 days → recommend Archive
+       - Calculate per-GB savings from tier migration
+
+    6. **Detect missing lifecycle policies** — Check each storage account
+       for a management policy. Flag accounts without lifecycle rules and
+       recommend a standard policy (Cool at 30d, Archive at 90d, Delete
+       at 365d).
+
+    7. **Detect stale snapshots** — Find all managed disk snapshots older
+       than 90 days. Calculate storage cost. Flag snapshots whose source
+       disk no longer exists as "orphaned — source deleted".
+
+    8. **Savings estimation** — Calculate monthly and annual savings for
+       every recommendation using Azure Retail Prices API.
+
+    9. **Report** — Generate a structured report with:
+       - Executive summary (total disks, storage accounts, snapshots
+         scanned; total findings; total savings)
+       - Recommendations grouped by resource group
+       - Sorted by severity then savings
+       - Raw metric values included for reviewer verification
+
+    Send the report via email to the platform engineering team.
+    Subject line: "Weekly Storage Optimization Report — [date]"

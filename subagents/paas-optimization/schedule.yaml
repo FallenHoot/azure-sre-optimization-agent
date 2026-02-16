@@ -1,0 +1,66 @@
+# PaaS Optimization Specialist — Scheduled Task
+# Runs weekly on Monday at 9:00 AM UTC
+
+schedule:
+  name: "Weekly PaaS Optimization Scan"
+  trigger: "0 9 * * 1"  # Every Monday at 9:00 AM UTC
+  description: >
+    Run weekly PaaS optimization analysis across all accessible
+    subscriptions. Identifies over-provisioned App Service Plans,
+    empty plans, SQL DTU/vCore waste, and elastic pool consolidation
+    candidates.
+  subagent: "PaaS-Optimization-Specialist"
+  prompt: |
+    Perform a complete PaaS optimization scan across all accessible subscriptions.
+
+    Execute the full workflow:
+
+    1. **Discover App Service Plans** — List all ASPs across accessible
+       subscriptions using Azure Resource Graph. Record SKU, tier,
+       capacity, worker count, and number of hosted sites.
+
+    2. **Detect empty App Service Plans** — Find ASPs where numberOfSites
+       is zero. Calculate monthly cost via Azure Retail Prices API.
+       Flag for immediate deletion — even Basic tier costs ~$55/month.
+
+    3. **Assess over-provisioned App Service Plans** — For each ASP with
+       hosted apps:
+       - Query P99 CPU and Memory percentage over the last 7 days
+       - If P99 CPU < 30% AND P99 Memory < 50%, flag as over-provisioned
+       - Recommend the next lower SKU tier
+       - If skuCapacity > 1 and P99 CPU < 30%, recommend reducing instances
+       - Check for feature dependencies (slots, WebJobs, Always On)
+
+    4. **Discover SQL Databases** — List all SQL DBs (excluding master)
+       via Resource Graph. Record edition, SKU, capacity, and elastic
+       pool membership.
+
+    5. **Detect SQL DTU waste** — For each DTU-based SQL DB:
+       - Query P99 DTU consumption percentage over the last 7 days
+       - If P99 DTU% < 20%, flag as over-provisioned
+       - Recommend the next lower DTU tier
+       - If P99 DTU% < 5%, flag as potential decommission candidate
+
+    6. **Detect SQL vCore waste** — For each vCore-based SQL DB:
+       - Query P99 CPU%, Data IO%, and Log IO% over the last 7 days
+       - If P99 CPU% < 20% AND P99 Data IO% < 20%, flag as over-provisioned
+       - Recommend reducing vCore count or switching to Serverless
+         for bursty workloads
+
+    7. **Identify elastic pool candidates** — Group standalone DBs by
+       SQL Server. For servers with 2+ standalone DBs, assess combined
+       P99 usage and determine if consolidation into an elastic pool
+       would save money. Add 20% headroom for correlated peaks.
+
+    8. **Savings estimation** — Calculate monthly and annual savings for
+       every recommendation using Azure Retail Prices API.
+
+    9. **Report** — Generate a structured report with:
+       - Executive summary (total ASPs, SQL DBs scanned; total findings;
+         total savings)
+       - Recommendations grouped by resource group
+       - Sorted by severity then savings
+       - P99 utilization metrics included for reviewer verification
+
+    Send the report via email to the platform engineering team.
+    Subject line: "Weekly PaaS Optimization Report — [date]"

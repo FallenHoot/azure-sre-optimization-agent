@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+.npm
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor files
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Azure CLI profiles
+.azure/
+
+# Test output
+tests/output/
+tests/results/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo

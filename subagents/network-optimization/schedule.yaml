@@ -1,0 +1,59 @@
+# Network Optimization Specialist — Scheduled Task
+# Runs weekly on Monday at 8:00 AM UTC
+
+schedule:
+  name: "Weekly Network Optimization Scan"
+  trigger: "0 8 * * 1"  # Every Monday at 8:00 AM UTC
+  description: >
+    Run weekly network optimization analysis across all accessible
+    subscriptions. Identifies empty load balancers, unused Application
+    Gateways, orphaned NSGs, orphaned public IPs, empty subnets,
+    unpeered VNets, and unused NAT Gateways.
+  subagent: "Network-Optimization-Specialist"
+  prompt: |
+    Perform a complete network optimization scan across all accessible subscriptions.
+
+    Execute the full workflow:
+
+    1. **Discover load balancers** — List all load balancers across accessible
+       subscriptions using Azure Resource Graph. Record SKU, backend pool
+       count, frontend IP count, and rule counts.
+
+    2. **Detect empty load balancers** — For each load balancer, check all
+       backend pools for active members. Flag load balancers where ALL pools
+       have zero backendIPConfigurations as empty. Calculate monthly cost
+       based on SKU (Standard ~$18/month).
+
+    3. **Discover and check Application Gateways** — List all App Gateways
+       via Resource Graph. For each, verify backend pool targets. Flag
+       App Gateways where ALL pools have zero targets as empty. These are
+       high-priority waste at ~$175–$350/month.
+
+    4. **Detect orphaned NSGs** — Find NSGs not associated with any subnet
+       or NIC. Exclude system-managed NSGs (e.g., AKS-created). Flag as
+       governance findings.
+
+    5. **Detect orphaned public IPs** — Find public IPs not associated
+       with any resource. Standard SKU IPs cost ~$3.65/month even when
+       unassociated. Flag for cleanup.
+
+    6. **Analyze VNets and subnets** — Find:
+       - Empty subnets with zero ipConfigurations (address space waste)
+       - Unpeered VNets with no peerings and no VPN/ExpressRoute gateway
+         (possibly abandoned)
+
+    7. **Detect unused NAT Gateways** — Find NAT Gateways with zero
+       associated subnets. These cost ~$32/month for nothing.
+
+    8. **Savings estimation** — Calculate monthly and annual savings for
+       every recommendation using Azure Retail Prices API.
+
+    9. **Report** — Generate a structured report with:
+       - Executive summary (total resources by type, total findings,
+         total savings)
+       - Recommendations grouped by resource group
+       - Sorted by severity then savings
+       - Evidence details included for reviewer verification
+
+    Send the report via email to the platform engineering team.
+    Subject line: "Weekly Network Optimization Report — [date]"

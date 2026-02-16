@@ -1,0 +1,70 @@
+# Orchestrator / Coordinator Agent — Scheduled Task
+# Runs weekly on Monday at 11:00 AM UTC (after all specialists complete)
+
+schedule:
+  name: "Weekly Executive Optimization Summary"
+  trigger: "0 11 * * 1"  # Every Monday at 11:00 AM UTC
+  description: >
+    Run weekly after all specialist subagents have completed their scans.
+    Aggregates reports from Compute (06:00), Storage (07:00), Network
+    (08:00), PaaS (09:00), and Governance (10:00) specialists. Produces
+    a unified executive summary with total savings, prioritized actions,
+    and cross-domain conflict resolution.
+  subagent: "Orchestrator-Coordinator"
+  prompt: |
+    Generate the weekly Azure Infrastructure Optimization Executive Summary.
+
+    All specialist subagents should have completed their scans by now:
+    - Compute Optimization Specialist (ran at 06:00 UTC)
+    - Storage Optimization Specialist (ran at 07:00 UTC)
+    - Network Optimization Specialist (ran at 08:00 UTC)
+    - PaaS Optimization Specialist (ran at 09:00 UTC)
+    - Governance & Compliance Specialist (ran at 10:00 UTC)
+
+    Execute the full orchestration workflow:
+
+    1. **Collect specialist reports** — Retrieve the latest report from
+       each specialist subagent. If any specialist scan failed or is
+       missing, note the gap but continue with available data.
+
+    2. **Deduplicate and cross-reference** — Check for overlapping
+       recommendations across domains:
+       - Merge VM deletion + attached disk findings into single
+         decommission recommendations
+       - Cross-reference orphaned public IPs with deallocated VMs
+       - Note when multiple specialists independently flagged the same
+         resource (higher confidence)
+       - Remove true duplicates, keeping the most detailed version
+
+    3. **Resolve conflicts** — Identify and handle conflicting
+       recommendations:
+       - Resize vs. delete → prefer delete for idle resources
+       - Tier change vs. decommission → prefer decommission path
+       - Flag irreconcilable conflicts for manual review
+
+    4. **Calculate aggregate savings** — Compute totals:
+       - Total monthly and annual savings
+       - Savings by domain (Compute, Storage, Network, PaaS, Governance)
+       - Savings by severity (Critical, High, Medium, Low)
+       - Savings by subscription and resource group
+
+    5. **Prioritize action items** — Create prioritized action list:
+       - Priority 1 (this week): Critical findings, >$200/month waste
+       - Priority 2 (2 weeks): High findings, expiring credentials
+       - Priority 3 (30 days): Medium findings, moderate savings
+       - Priority 4 (backlog): Low findings, governance-only items
+
+    6. **Generate executive summary** — Build unified report with:
+       - Key metrics dashboard (resources, findings, savings)
+       - Top 10 quick wins (highest impact, lowest risk)
+       - Critical & High priority items with full detail
+       - Domain summaries with key findings
+       - Trend analysis vs. previous week
+       - Conflicts and manual review items
+       - Full recommendation appendix
+
+    7. **Distribute** — Send the executive summary via email:
+       - To: Platform engineering team
+       - Subject: "Azure Optimization Executive Summary — [date] —
+         $[total]/month potential"
+       - Format: HTML with summary table at top, full detail below

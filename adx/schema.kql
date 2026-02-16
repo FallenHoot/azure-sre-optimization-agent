@@ -1,0 +1,274 @@
+// ============================================================================
+// SRE Optimization Engine — ADX Database Schema
+// ============================================================================
+// Run these KQL commands against your FinOps Hub ADX cluster to create
+// the SREOptimization database and all required tables/functions.
+//
+// Prerequisites:
+//   - ADX cluster from FinOps Hub deployment
+//   - Database Admin permissions on the cluster
+//
+// Usage:
+//   1. Open https://dataexplorer.azure.com
+//   2. Connect to your FinOps Hub cluster
+//   3. Run Step 0 (create database) via Azure portal or CLI
+//   4. Run all remaining steps in the SREOptimization database context
+// ============================================================================
+
+
+// ============================================================================
+// STEP 0: Create the database (run via Azure Portal or CLI)
+// ============================================================================
+// Cannot create databases via KQL — use one of:
+//
+// Azure CLI:
+//   az kusto database create \
+//     --cluster-name <finops-hub-cluster> \
+//     --resource-group <finops-hub-rg> \
+//     --database-name SREOptimization \
+//     --read-write-database soft-delete-period=P365D hot-cache-period=P31D
+//
+// Azure Portal:
+//   1. Navigate to your ADX cluster → Databases → Add Database
+//   2. Name: SREOptimization
+//   3. Retention: 365 days | Cache: 31 days
+
+
+// ============================================================================
+// STEP 1: Core tables
+// ============================================================================
+
+// --- Scans: Metadata for each optimization scan run ---
+.create table Scans (
+    ScanId: guid,
+    ScanDate: datetime,
+    ScanType: string,              // 'compute', 'storage', 'network', 'paas', 'governance', 'full'
+    SubagentName: string,          // 'Compute-Optimization-Specialist', etc.
+    SubscriptionsScanned: dynamic, // array of subscription IDs
+    ResourcesScanned: int,
+    FindingsCount: int,
+    EstimatedSavingsMonthlyUSD: real,
+    EstimatedSavingsAnnualUSD: real,
+    ScanDurationSeconds: int,
+    Status: string,                // 'completed', 'partial', 'failed'
+    DataGaps: string,              // summary of any data gaps
+    TriggeredBy: string            // 'scheduled', 'manual', 'incident'
+) with (docstring = "Metadata for each SRE optimization scan run")
+
+// --- Recommendations: Individual optimization findings ---
+.create table Recommendations (
+    RecommendationId: guid,
+    ScanId: guid,
+    ScanDate: datetime,
+    Domain: string,                // 'compute', 'storage', 'network', 'paas', 'governance'
+    Category: string,              // 'rightsizing', 'idle-resource', 'orphan-cleanup', 'ha-gap',
+                                   // 'spot-eligible', 'tier-optimization', 'lifecycle-policy',
+                                   // 'generation-upgrade', 'tag-compliance', 'credential-expiry'
+    Severity: string,              // 'Critical', 'High', 'Medium', 'Low'
+    ResourceId: string,            // full ARM resource ID (matches FOCUS ResourceId)
+    ResourceName: string,          // short name
+    ResourceType: string,          // e.g., 'microsoft.compute/virtualmachines'
+    ResourceGroup: string,
+    SubscriptionId: string,
+    SubAccountName: string,        // subscription display name (FOCUS alignment)
+    ServiceCategory: string,       // FOCUS ServiceCategory (Compute, Storage, etc.)
+    Location: string,              // Azure region
+    CurrentState: string,          // e.g., 'Standard_D8s_v3', 'Premium_LRS P30', 'Hot tier'
+    RecommendedAction: string,     // e.g., 'Standard_D4s_v5', 'Delete', 'Enable lifecycle'
+    FitScore: real,                // 0.0-5.0 (null for non-compute)
+    FitScoreBreakdown: dynamic,    // JSON: per-dimension FitScore details
+    EstimatedSavingsMonthlyUSD: real,
+    EstimatedSavingsAnnualUSD: real,
+    CurrentMonthlyCostUSD: real,   // current cost from pricing API
+    TargetMonthlyCostUSD: real,    // projected cost after optimization
+    Risk: string,                  // 'Safe', 'Low', 'Medium', 'High'
+    Evidence: string,              // metrics/data supporting the recommendation
+    InferredWorkload: string,      // 'SQL', 'Web', 'DC', 'CI-Runner', 'Unknown'
+    ImplementationStatus: string,  // 'pending', 'accepted', 'implemented', 'rejected', 'deferred'
+    ImplementedDate: datetime,     // null until implemented
+    Tags: dynamic                  // resource tags at scan time
+) with (docstring = "Individual optimization recommendations from SRE scans")
+
+// --- SavingsTracking: Track projected vs realized savings over time ---
+.create table SavingsTracking (
+    TrackingId: guid,
+    RecommendationId: guid,
+    TrackingDate: datetime,
+    ResourceId: string,
+    Domain: string,
+    Category: string,
+    ProjectedSavingsMonthlyUSD: real,
+    ActualCostBeforeUSD: real,     // from FOCUS Costs data
+    ActualCostAfterUSD: real,      // from FOCUS Costs data (post-implementation)
+    RealizedSavingsUSD: real,      // ActualCostBefore - ActualCostAfter
+    SavingsAccuracy: real,         // RealizedSavings / ProjectedSavings (percentage)
+    Status: string                 // 'tracking', 'realized', 'not-realized', 'partially-realized'
+) with (docstring = "Track projected vs realized savings to measure optimization effectiveness")
+
+// --- ResourceSnapshots: Weekly resource inventory for trend analysis ---
+.create table ResourceSnapshots (
+    SnapshotId: guid,
+    SnapshotDate: datetime,
+    ResourceId: string,
+    ResourceName: string,
+    ResourceType: string,
+    ResourceGroup: string,
+    SubscriptionId: string,
+    Location: string,
+    SKU: string,                   // VM size, disk tier, App Service plan, etc.
+    PowerState: string,            // Running, Deallocated, Stopped, N/A
+    Tags: dynamic,
+    Properties: dynamic            // key properties snapshot (disk count, NIC count, etc.)
+) with (docstring = "Weekly snapshots of resource state for trend analysis")
+
+// --- AgentMetrics: SRE Agent operational metrics ---
+.create table AgentMetrics (
+    MetricDate: datetime,
+    MetricName: string,            // 'scan_duration_seconds', 'aau_consumed', 'tool_calls',
+                                   // 'api_errors', 'recommendations_generated'
+    MetricValue: real,
+    SubagentName: string,
+    Dimensions: dynamic            // additional context
+) with (docstring = "Operational metrics for the SRE Agent itself")
+
+
+// ============================================================================
+// STEP 2: Ingestion mappings (for JSON ingestion from SRE Agent)
+// ============================================================================
+
+.create table Scans ingestion json mapping 'Scans_JsonMapping' '[{"column":"ScanId","path":"$.scanId","datatype":"guid"},{"column":"ScanDate","path":"$.scanDate","datatype":"datetime"},{"column":"ScanType","path":"$.scanType","datatype":"string"},{"column":"SubagentName","path":"$.subagentName","datatype":"string"},{"column":"SubscriptionsScanned","path":"$.subscriptionsScanned","datatype":"dynamic"},{"column":"ResourcesScanned","path":"$.resourcesScanned","datatype":"int"},{"column":"FindingsCount","path":"$.findingsCount","datatype":"int"},{"column":"EstimatedSavingsMonthlyUSD","path":"$.estimatedSavingsMonthlyUSD","datatype":"real"},{"column":"EstimatedSavingsAnnualUSD","path":"$.estimatedSavingsAnnualUSD","datatype":"real"},{"column":"ScanDurationSeconds","path":"$.scanDurationSeconds","datatype":"int"},{"column":"Status","path":"$.status","datatype":"string"},{"column":"DataGaps","path":"$.dataGaps","datatype":"string"},{"column":"TriggeredBy","path":"$.triggeredBy","datatype":"string"}]'
+
+.create table Recommendations ingestion json mapping 'Recommendations_JsonMapping' '[{"column":"RecommendationId","path":"$.recommendationId","datatype":"guid"},{"column":"ScanId","path":"$.scanId","datatype":"guid"},{"column":"ScanDate","path":"$.scanDate","datatype":"datetime"},{"column":"Domain","path":"$.domain","datatype":"string"},{"column":"Category","path":"$.category","datatype":"string"},{"column":"Severity","path":"$.severity","datatype":"string"},{"column":"ResourceId","path":"$.resourceId","datatype":"string"},{"column":"ResourceName","path":"$.resourceName","datatype":"string"},{"column":"ResourceType","path":"$.resourceType","datatype":"string"},{"column":"ResourceGroup","path":"$.resourceGroup","datatype":"string"},{"column":"SubscriptionId","path":"$.subscriptionId","datatype":"string"},{"column":"SubAccountName","path":"$.subAccountName","datatype":"string"},{"column":"ServiceCategory","path":"$.serviceCategory","datatype":"string"},{"column":"Location","path":"$.location","datatype":"string"},{"column":"CurrentState","path":"$.currentState","datatype":"string"},{"column":"RecommendedAction","path":"$.recommendedAction","datatype":"string"},{"column":"FitScore","path":"$.fitScore","datatype":"real"},{"column":"FitScoreBreakdown","path":"$.fitScoreBreakdown","datatype":"dynamic"},{"column":"EstimatedSavingsMonthlyUSD","path":"$.estimatedSavingsMonthlyUSD","datatype":"real"},{"column":"EstimatedSavingsAnnualUSD","path":"$.estimatedSavingsAnnualUSD","datatype":"real"},{"column":"CurrentMonthlyCostUSD","path":"$.currentMonthlyCostUSD","datatype":"real"},{"column":"TargetMonthlyCostUSD","path":"$.targetMonthlyCostUSD","datatype":"real"},{"column":"Risk","path":"$.risk","datatype":"string"},{"column":"Evidence","path":"$.evidence","datatype":"string"},{"column":"InferredWorkload","path":"$.inferredWorkload","datatype":"string"},{"column":"ImplementationStatus","path":"$.implementationStatus","datatype":"string"},{"column":"ImplementedDate","path":"$.implementedDate","datatype":"datetime"},{"column":"Tags","path":"$.tags","datatype":"dynamic"}]'
+
+
+// ============================================================================
+// STEP 3: Retention policies
+// ============================================================================
+
+// Keep recommendations for 2 years (track long-term optimization trends)
+.alter table Recommendations policy retention softdelete = 730d
+
+// Keep scan metadata for 2 years
+.alter table Scans policy retention softdelete = 730d
+
+// Keep savings tracking for 2 years
+.alter table SavingsTracking policy retention softdelete = 730d
+
+// Keep resource snapshots for 1 year (weekly = ~52 snapshots per resource)
+.alter table ResourceSnapshots policy retention softdelete = 365d
+
+// Keep agent metrics for 90 days
+.alter table AgentMetrics policy retention softdelete = 90d
+
+
+// ============================================================================
+// STEP 4: Helper functions
+// ============================================================================
+
+// --- Get latest scan per domain ---
+.create-or-alter function LatestScans() {
+    Scans
+    | summarize arg_max(ScanDate, *) by ScanType
+    | project-away ScanType1
+}
+
+// --- Get active (non-implemented) recommendations ---
+.create-or-alter function ActiveRecommendations() {
+    Recommendations
+    | where ImplementationStatus in ('pending', 'accepted')
+    | where ScanId in (
+        Scans
+        | summarize arg_max(ScanDate, ScanId) by ScanType
+        | project ScanId
+    )
+}
+
+// --- Get savings summary per domain ---
+.create-or-alter function SavingsSummary() {
+    ActiveRecommendations
+    | summarize
+        Findings = count(),
+        CriticalCount = countif(Severity == 'Critical'),
+        HighCount = countif(Severity == 'High'),
+        MediumCount = countif(Severity == 'Medium'),
+        LowCount = countif(Severity == 'Low'),
+        EstimatedMonthlySavingsUSD = sum(EstimatedSavingsMonthlyUSD),
+        EstimatedAnnualSavingsUSD = sum(EstimatedSavingsAnnualUSD)
+        by Domain
+    | order by EstimatedMonthlySavingsUSD desc
+}
+
+// --- Get savings trend over time (weekly) ---
+.create-or-alter function SavingsTrend() {
+    Scans
+    | where Status == 'completed'
+    | summarize
+        TotalSavingsMonthlyUSD = sum(EstimatedSavingsMonthlyUSD),
+        TotalFindings = sum(FindingsCount),
+        TotalResourcesScanned = sum(ResourcesScanned)
+        by ScanWeek = bin(ScanDate, 7d)
+    | order by ScanWeek asc
+}
+
+// --- Join recommendations with FOCUS cost data ---
+// NOTE: This function queries the Hub database — requires cross-database access
+.create-or-alter function RecommendationsWithCost() {
+    ActiveRecommendations
+    | join kind=leftouter (
+        database('Hub').Costs
+        | where ChargePeriodStart >= ago(30d)
+        | summarize
+            ActualMonthlyCostUSD = sum(EffectiveCost)
+            by ResourceId = tolower(ResourceId)
+    ) on $left.ResourceId == $right.ResourceId
+    | extend
+        ActualMonthlyCostUSD = coalesce(ActualMonthlyCostUSD, CurrentMonthlyCostUSD),
+        SavingsPercentage = iff(
+            isnotnull(ActualMonthlyCostUSD) and ActualMonthlyCostUSD > 0,
+            round(EstimatedSavingsMonthlyUSD / ActualMonthlyCostUSD * 100, 1),
+            real(null)
+        )
+    | project-away ResourceId1
+}
+
+// --- FitScore distribution for compute recommendations ---
+.create-or-alter function FitScoreDistribution() {
+    Recommendations
+    | where Domain == 'compute' and isnotnull(FitScore)
+    | where ScanId in (
+        Scans | summarize arg_max(ScanDate, ScanId) by ScanType | project ScanId
+    )
+    | summarize
+        Count = count(),
+        AvgSavingsUSD = avg(EstimatedSavingsMonthlyUSD)
+        by FitScoreBucket = case(
+            FitScore >= 4.0, "4.0-5.0 (Safe ✅)",
+            FitScore >= 3.0, "3.0-3.9 (Caution ⚠️)",
+            FitScore >= 2.0, "2.0-2.9 (Risky ❌)",
+            "< 2.0 (Block 🚫)"
+        )
+    | order by FitScoreBucket asc
+}
+
+
+// ============================================================================
+// STEP 5: RBAC (run from Azure Portal or CLI)
+// ============================================================================
+// Grant SRE Agent managed identity access:
+//
+//   # Viewer on Hub + Ingestion (read FOCUS cost data)
+//   az kusto database add-principal \
+//     --cluster-name <cluster> --resource-group <rg> \
+//     --database-name Hub \
+//     --value name="SRE Agent MI" type="App" app-id="<mi-client-id>" role="Viewer"
+//
+//   az kusto database add-principal \
+//     --cluster-name <cluster> --resource-group <rg> \
+//     --database-name Ingestion \
+//     --value name="SRE Agent MI" type="App" app-id="<mi-client-id>" role="Viewer"
+//
+//   # Admin on SREOptimization (write scan results)
+//   az kusto database add-principal \
+//     --cluster-name <cluster> --resource-group <rg> \
+//     --database-name SREOptimization \
+//     --value name="SRE Agent MI" type="App" app-id="<mi-client-id>" role="Admin"

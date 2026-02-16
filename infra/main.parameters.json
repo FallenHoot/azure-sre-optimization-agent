@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "agentName": {
+      "value": "sre-optimization-agent"
+    },
+    "resourceGroupName": {
+      "value": "rg-sre-optimization"
+    },
+    "location": {
+      "value": "swedencentral"
+    },
+    "accessLevel": {
+      "value": "High"
+    },
+    "agentMode": {
+      "value": "Review"
+    },
+    "targetResourceGroups": {
+      "value": []
+    }
+  }
+}

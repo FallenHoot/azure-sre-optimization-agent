@@ -1,0 +1,85 @@
+# ============================================================================
+# Azure SRE Optimization Engine — Subagent Registry
+# ============================================================================
+# This file serves as the root index for all specialist subagents.
+# Each subagent has its own subagent.yaml in its directory under subagents/.
+#
+# Format: api_version azuresre.ai/v1 | kind: AgentConfiguration
+# Source: Azure Optimization Engine (AOE) by @helderpinto
+# ============================================================================
+
+api_version: azuresre.ai/v1
+kind: SubagentRegistry
+
+metadata:
+  name: sre-optimization-engine
+  description: >
+    Multi-domain Azure infrastructure optimization platform.
+    Six specialist subagents analyze compute, storage, network, PaaS,
+    governance, and provide cross-domain orchestration.
+  version: "2.0"
+  source: "microsoft/finops-toolkit/src/optimization-engine"
+
+subagents:
+  - name: Compute-Optimization-Specialist
+    path: subagents/compute-optimization/subagent.yaml
+    schedule: "0 6 * * 1"          # Monday 06:00 UTC
+    domain: Compute
+    resources:
+      - microsoft.compute/virtualMachines
+      - microsoft.compute/virtualMachineScaleSets
+    tools_count: 11
+
+  - name: Storage-Optimization-Specialist
+    path: subagents/storage-optimization/subagent.yaml
+    schedule: "0 7 * * 1"          # Monday 07:00 UTC
+    domain: Storage
+    resources:
+      - microsoft.compute/disks
+      - microsoft.compute/snapshots
+      - microsoft.storage/storageAccounts
+    tools_count: 11
+
+  - name: Network-Optimization-Specialist
+    path: subagents/network-optimization/subagent.yaml
+    schedule: "0 8 * * 1"          # Monday 08:00 UTC
+    domain: Networking
+    resources:
+      - microsoft.network/loadBalancers
+      - microsoft.network/applicationGateways
+      - microsoft.network/networkSecurityGroups
+      - microsoft.network/publicIPAddresses
+      - microsoft.network/virtualNetworks
+      - microsoft.network/natGateways
+    tools_count: 10
+
+  - name: PaaS-Optimization-Specialist
+    path: subagents/paas-optimization/subagent.yaml
+    schedule: "0 9 * * 1"          # Monday 09:00 UTC
+    domain: PaaS
+    resources:
+      - microsoft.web/serverfarms
+      - microsoft.sql/servers/databases
+    tools_count: 11
+
+  - name: Governance-Compliance-Specialist
+    path: subagents/governance-compliance/subagent.yaml
+    schedule: "0 10 * * 1"         # Monday 10:00 UTC
+    domain: Governance
+    resources:
+      - Entra ID (app registrations, service principals)
+      - ARM API versions
+      - Resource tags
+      - Azure Advisor (Security, HA, Performance, OpEx)
+      - RBAC assignments
+    tools_count: 10
+
+  - name: Orchestrator-Coordinator
+    path: subagents/orchestrator/subagent.yaml
+    schedule: "0 11 * * 1"         # Monday 11:00 UTC (after all specialists)
+    domain: Cross-domain coordination
+    resources: []                  # Does not analyze resources directly
+    tools_count: 6
+
+# Execution order: Compute → Storage → Network → PaaS → Governance → Orchestrator
+# Each specialist runs independently. Orchestrator aggregates all results.
