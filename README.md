@@ -13,6 +13,15 @@ A collection of **Azure SRE Agent subagents** that port the [Azure Optimization 
 
 Instead of 50 Azure resources, 35 PowerShell runbooks, and a SQL database, you get **YAML definitions + markdown knowledge base documents** that an AI agent uses to perform the same infrastructure optimization analysis in real-time.
 
+## Public Repository Disclaimer
+
+- This repository is an independent community project by the repository owner. It is **not owned by Microsoft** and is **not** an official Microsoft product.
+- This repository contains guidance, templates, and sample configurations. It does **not** include production credentials or secrets.
+- Do not commit secrets, access keys, tokens, certificates, or customer data. Use placeholders such as `<SUBSCRIPTION_ID>` and managed identity where possible.
+- Validate all recommendations in a non-production environment before applying in production.
+
+For reporting vulnerabilities, see [SECURITY.md](SECURITY.md).
+
 ## Why?
 
 | Dimension | AOE (Current) | SRE Agent Subagents (This Project) |
