@@ -17,14 +17,35 @@ metadata:
     Multi-domain Azure infrastructure optimization platform.
     Six specialist subagents analyze compute, storage, network, PaaS,
     governance, and provide cross-domain orchestration.
-  version: "2.0"
+  version: "3.0"
   source: "microsoft/finops-toolkit/src/optimization-engine"
+
+# ============================================================================
+# Autonomy Tier Model (from Cloudgeni Infrastructure Agents Guide)
+# ============================================================================
+# Tier 0: OBSERVE    — Read-only. Analyze, summarize, report.
+# Tier 1: RECOMMEND  — Suggest changes. No execution.
+# Tier 2: DRAFT      — Create actionable plans. No execution.
+# Tier 3: VALIDATE   — Execute in sandbox/dry-run. No live mutation.
+# Tier 4: EXECUTE    — Modify live resources (requires user CONFIRM).
+#
+# All specialists default to Tier 1 (recommend). They can escalate to
+# Tier 4 ONLY when the user explicitly requests remediation AND confirms.
+# The orchestrator is permanently Tier 0 (observe only, no write tools).
+# ============================================================================
 
 subagents:
   - name: Compute-Optimization-Specialist
     path: subagents/compute-optimization/subagent.yaml
     schedule: "0 6 * * 1"          # Monday 06:00 UTC
     domain: Compute
+    autonomy_tier: 1               # RECOMMEND (default scan mode)
+    autonomy_tier_max: 4           # Can escalate to EXECUTE with user CONFIRM
+    budget:
+      max_tool_calls: 200
+      max_duration_minutes: 55     # Must complete before Storage starts
+      max_consecutive_failures: 3
+      max_retries_per_resource: 1
     resources:
       - microsoft.compute/virtualMachines
       - microsoft.compute/virtualMachineScaleSets
@@ -34,6 +55,13 @@ subagents:
     path: subagents/storage-optimization/subagent.yaml
     schedule: "0 7 * * 1"          # Monday 07:00 UTC
     domain: Storage
+    autonomy_tier: 1               # RECOMMEND
+    autonomy_tier_max: 4           # EXECUTE with CONFIRM
+    budget:
+      max_tool_calls: 200
+      max_duration_minutes: 55
+      max_consecutive_failures: 3
+      max_retries_per_resource: 1
     resources:
       - microsoft.compute/disks
       - microsoft.compute/snapshots
@@ -44,6 +72,13 @@ subagents:
     path: subagents/network-optimization/subagent.yaml
     schedule: "0 8 * * 1"          # Monday 08:00 UTC
     domain: Networking
+    autonomy_tier: 1               # RECOMMEND
+    autonomy_tier_max: 4           # EXECUTE with CONFIRM
+    budget:
+      max_tool_calls: 150
+      max_duration_minutes: 55
+      max_consecutive_failures: 3
+      max_retries_per_resource: 1
     resources:
       - microsoft.network/loadBalancers
       - microsoft.network/applicationGateways
@@ -57,6 +92,13 @@ subagents:
     path: subagents/paas-optimization/subagent.yaml
     schedule: "0 9 * * 1"          # Monday 09:00 UTC
     domain: PaaS
+    autonomy_tier: 1               # RECOMMEND
+    autonomy_tier_max: 4           # EXECUTE with CONFIRM
+    budget:
+      max_tool_calls: 200
+      max_duration_minutes: 55
+      max_consecutive_failures: 3
+      max_retries_per_resource: 1
     resources:
       - microsoft.web/serverfarms
       - microsoft.sql/servers/databases
@@ -66,6 +108,13 @@ subagents:
     path: subagents/governance-compliance/subagent.yaml
     schedule: "0 10 * * 1"         # Monday 10:00 UTC
     domain: Governance
+    autonomy_tier: 1               # RECOMMEND
+    autonomy_tier_max: 4           # EXECUTE with CONFIRM
+    budget:
+      max_tool_calls: 150
+      max_duration_minutes: 55
+      max_consecutive_failures: 3
+      max_retries_per_resource: 1
     resources:
       - Entra ID (app registrations, service principals)
       - ARM API versions
@@ -78,8 +127,104 @@ subagents:
     path: subagents/orchestrator/subagent.yaml
     schedule: "0 11 * * 1"         # Monday 11:00 UTC (after all specialists)
     domain: Cross-domain coordination
+    autonomy_tier: 0               # OBSERVE only — no write tools
+    autonomy_tier_max: 0           # Cannot escalate — read-only permanently
+    budget:
+      max_tool_calls: 100
+      max_duration_minutes: 30
+      max_consecutive_failures: 3
+      max_retries_per_resource: 0  # No resource-level queries
     resources: []                  # Does not analyze resources directly
     tools_count: 6
 
 # Execution order: Compute → Storage → Network → PaaS → Governance → Orchestrator
 # Each specialist runs independently. Orchestrator aggregates all results.
+
+# ============================================================================
+# Run Modes (per Azure SRE Agent platform)
+# ============================================================================
+# Review:     Agent proposes actions, human approves before execution.
+# Autonomous: Agent acts without approval — for read-only/trusted tasks.
+#
+# All weekly scans run as Autonomous (read-only analysis, no write ops).
+# User-requested remediations should be created as separate tasks with
+# run_mode: review (human approval required for write operations).
+# ============================================================================
+
+# ============================================================================
+# Connector Requirements (configure in Azure portal)
+# ============================================================================
+# These connectors enhance agent capabilities when configured:
+connectors:
+  required:
+    - type: log-analytics
+      purpose: "Metric queries (P99 CPU, memory, IOPS, DTU) for all specialists"
+      note: "Built-in access works, but connector adds persistent workspace awareness"
+
+  recommended:
+    - type: azure-data-explorer
+      purpose: "Historical trend analysis, time-series scan data, dashboard integration"
+      note: "Connect your ADX cluster from adx/setup-guide.md for cross-scan trending"
+      tools:
+        - kusto_query
+        - kusto_table_list
+        - kusto_table_schema
+
+    - type: teams-notification
+      purpose: "Critical finding alerts (stopped-not-deallocated VMs, expired credentials)"
+      note: "Orchestrator sends adaptive cards for Critical/High severity findings"
+
+    - type: outlook-notification
+      purpose: "Weekly executive summary email to platform engineering team"
+      note: "Orchestrator sends formatted HTML summary after Monday 11:00 scan"
+
+    - type: grafana-mcp
+      purpose: "Query cost dashboards directly — agent can reference live Grafana panels"
+      note: "Optional — enables Azure Managed Grafana MCP for cost visualization"
+
+  optional:
+    - type: github-mcp
+      purpose: "Track optimization PRs, link findings to IaC repos"
+    - type: pagerduty
+      purpose: "Critical finding escalation for expired credentials and security issues"
+
+# ============================================================================
+# Guardrails Checklist (validated before deployment)
+# ============================================================================
+# Based on Cloudgeni Infrastructure Agents Guide Chapter 8.
+# These are structural invariants that deployment scripts should verify.
+guardrails_checklist:
+  - id: orchestrator-no-write-tools
+    description: "Orchestrator must not have RunAzCliWriteCommands"
+    severity: critical
+    check: "orchestrator.tools does not contain RunAzCliWriteCommands"
+
+  - id: autonomy-tier-defined
+    description: "Every subagent has an explicit autonomy_tier"
+    severity: critical
+    check: "all subagents have autonomy_tier defined"
+
+  - id: budget-limits-defined
+    description: "Every subagent has budget.max_tool_calls and budget.max_duration_minutes"
+    severity: high
+    check: "all subagents have budget section with required fields"
+
+  - id: action-trail-required
+    description: "Every specialist saves an action trail document alongside reports"
+    severity: high
+    check: "all specialist workflows include action trail emission step"
+
+  - id: write-requires-confirm
+    description: "Write operations require explicit user CONFIRM"
+    severity: critical
+    check: "all specialists with RunAzCliWriteCommands enforce CONFIRM gate"
+
+  - id: policy-referenced
+    description: "All specialists reference Agent-Policy.md for common policies"
+    severity: medium
+    check: "all specialist system_prompts reference SearchMemory for Agent-Policy"
+
+  - id: failure-taxonomy-used
+    description: "All specialists classify failures using Failure-Taxonomy categories"
+    severity: medium
+    check: "all specialist error handling references Failure-Taxonomy categories"

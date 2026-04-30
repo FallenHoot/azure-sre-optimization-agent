@@ -4,6 +4,7 @@
 schedule:
   name: "Weekly PaaS Optimization Scan"
   trigger: "0 9 * * 1"  # Every Monday at 9:00 AM UTC
+  run_mode: autonomous  # Read-only scan — no write ops, no approval needed
   description: >
     Run weekly PaaS optimization analysis across all accessible
     subscriptions. Identifies over-provisioned App Service Plans,

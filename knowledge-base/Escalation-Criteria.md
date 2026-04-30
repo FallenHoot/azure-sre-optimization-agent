@@ -360,3 +360,51 @@ Is severity Medium?
 Is severity Low?
     YES → Log only + include in weekly report
 ```
+
+---
+
+## Scan Health Escalation (from Action Trails)
+
+In addition to resource-level finding escalation, the orchestrator monitors
+**scan health** using data from specialist action trails. These escalations are
+based on the failure categories defined in **Failure-Taxonomy.md**.
+
+### Trend-Aware Escalation Rules
+
+| Pattern | Threshold | Escalation Level | Action |
+|---|---|---|---|
+| Same resource `DATA_MISSING` for 3+ consecutive scans | 3 weeks | High | "AMA deployment needed for {resource}" — include in executive summary |
+| Same subscription `AUTH_EXPIRED` for 2+ consecutive scans | 2 weeks | Critical | "RBAC misconfiguration — scan blocked for {subscription}" — immediate alert |
+| Specialist hits `BUDGET_EXCEEDED` for 2+ consecutive scans | 2 weeks | High | "Budget limits may need adjustment for {specialist}" — flag in platform health |
+| >20% of resources in a domain hit `TRANSIENT` failures | Single scan | Medium | "Azure API throttling detected — consider staggering scans" — include in weekly report |
+| >10% of resources hit `PERMANENT` failures | Single scan | Medium | "Possible infrastructure drift — resources may have been deleted since discovery" |
+| Specialist scan outcome = `FAILED` | Single scan | High | "Specialist scan failed — manual investigation required" — create ticket |
+
+### Platform Health Section in Executive Summary
+
+The orchestrator includes a **Platform Health Summary** section in every
+executive summary, derived from action trails:
+
+```
+## Platform Health Summary
+
+### Scan Completion
+| Specialist | Outcome | Tool Calls | Duration | Failures |
+|---|---|---|---|---|
+| Compute | COMPLETE | 87/200 (44%) | 32/55 min (58%) | 2 |
+| Storage | COMPLETE | 62/200 (31%) | 18/55 min (33%) | 0 |
+| Network | PARTIAL | 150/150 (100%) ⚠️ | 55/55 min (100%) ⚠️ | 5 |
+| PaaS | COMPLETE | 45/200 (23%) | 12/55 min (22%) | 1 |
+| Governance | COMPLETE | 98/150 (65%) | 40/55 min (73%) | 3 |
+
+### Failure Summary
+| Category | Count | Impact |
+|---|---|---|
+| DATA_MISSING | 8 | FitScore confidence reduced on 8 VMs (no AMA) |
+| TRANSIENT | 3 | 3 resources retried successfully |
+| TIMEOUT | 2 | 2 resources skipped — data gap in report |
+
+### Trend Alerts
+- ⚠️ vm-web-01: DATA_MISSING for 4 consecutive scans → AMA deployment needed
+- ⚠️ Network specialist: budget exceeded 2 consecutive scans → review limits
+```

@@ -4,6 +4,7 @@
 schedule:
   name: "Weekly Governance & Compliance Scan"
   trigger: "0 10 * * 1"  # Every Monday at 10:00 AM UTC
+  run_mode: autonomous  # Read-only scan — no write ops, no approval needed
   description: >
     Run weekly governance and compliance analysis across all accessible
     subscriptions. Checks for expiring Entra ID credentials, outdated

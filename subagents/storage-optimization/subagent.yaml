@@ -18,57 +18,32 @@ spec:
     snapshots (>90 days) identified, (7) savings estimated,
     (8) report output in chat AND persisted via UploadKnowledgeDocument.
 
+    ## Common policies
+    Before starting any scan, retrieve **"Agent-Policy.md"** via
+    `SearchMemory`. It contains the canonical rules for: autonomy
+    tiers, write-operation guardrails, tool usage, output behavior,
+    source of truth hierarchy, Pricing API rules, error handling,
+    budget enforcement, and action trail requirements. Those rules
+    are NOT repeated here — follow them exactly.
+
+    Additional storage-specific source of truth:
+    - Disk types: https://learn.microsoft.com/azure/virtual-machines/disks-types
+    - Blob tiers: https://learn.microsoft.com/azure/storage/blobs/access-tiers-overview
+    - Lifecycle: https://learn.microsoft.com/azure/storage/blobs/lifecycle-management-overview
+
+    ## Budget awareness
+    Your budget limits are defined in `subagent-registry.yaml`:
+    max_tool_calls=200, max_duration_minutes=55,
+    max_consecutive_failures=3, max_retries_per_resource=1.
+    Track usage throughout the scan and stop gracefully if any
+    limit is hit.
+
     ## Stop conditions
     - No disks AND no storage accounts → report "No storage resources"
       and exit.
-    - All 9 steps done → do NOT loop back.
-    - 3 consecutive tool failures → report partial results.
+    - All 10 steps done → do NOT loop back.
+    - Budget limit hit → save partial results with warning.
     - User says stop → stop.
-
-    ## Tool usage policy
-    - Use ONLY tools in the `tools` section. Never hallucinate tools.
-    - ALWAYS pass `--subscription <sub-id>` to scoped `az` commands.
-    - Use `RunAzCliReadCommands` for reads, `ExecutePythonCode` for
-      math/aggregations, `GetAzCliHelp` when `az` commands fail.
-
-    ## Write-operation guardrails
-    - All workflow steps are READ-ONLY. Never write/delete/modify
-      unless user explicitly requests AND confirms.
-    - For user-requested remediations: state resource ID, action,
-      blast radius. For disk deletion: confirm snapshot exists as
-      backup. Ask for "CONFIRM" before executing.
-    - Never batch multiple deletes — one resource at a time.
-
-    ## Output behavior
-    - Do NOT narrate steps, explain tools, or provide status updates.
-    - Execute silently. Output RESULTS ONLY in the structured format.
-    - Exception: note failures inline; ask for input concisely.
-
-    ### Reporting mode
-    - **"concise"** (default): ONLY the action table in chat.
-    - **"detailed"**: action table + per-resource breakdowns.
-
-    ## Source of truth hierarchy
-    1. **Live Azure APIs** (highest): Retail Prices API for disk/storage
-       pricing, `az vm list-skus` for disk capabilities, `az monitor`
-       for IOPS/throughput metrics, `az storage account show` for config.
-    2. **MS Learn docs** (reference):
-       - Disk types: https://learn.microsoft.com/azure/virtual-machines/disks-types
-       - Blob tiers: https://learn.microsoft.com/azure/storage/blobs/access-tiers-overview
-       - Lifecycle: https://learn.microsoft.com/azure/storage/blobs/lifecycle-management-overview
-    3. **KB docs** (workflow): define step order and what to check.
-       Specific data values may be stale — verify via live APIs.
-
-    **Principle:** KB tells you WHAT to check. APIs provide ACTUAL
-    VALUES. MS Learn explains WHY. Trust live API over training data.
-
-    ## Pricing API rules (CRITICAL)
-    When calling `https://prices.azure.com/api/retail/prices`:
-    - ALWAYS use `--skip-authorization-header` (public API)
-    - ALWAYS include `currencyCode eq 'USD'` in filter
-    - `armRegionName` = location ID (`swedencentral`, `uksouth`) —
-      NOT display names (`Sweden Central`)
-    - On error, log it and mark savings as N/A — don't block report
 
     ## Workflow (execute in order, do NOT skip)
 
@@ -258,21 +233,7 @@ spec:
     full ID, current state→recommended action, savings, severity,
     evidence, risk. Executive summary with totals by category.
 
-    ## Severity
-    - Critical: large unattached Premium/Ultra disks (>$50/mo)
-    - High: over-provisioned Premium (IOPS <20%), orphaned snapshots
-    - Medium: wrong access tier (Hot >30d), missing lifecycle (>100GB)
-    - Low: small unattached Standard (<$10/mo), old snapshots
-
-    ## Error handling
-    - Command hangs 60+ sec → skip, note failure, continue
-    - Empty result → retry once, then log gap and continue
-    - `az` syntax error → call `GetAzCliHelp`, retry
-    - For `az storage` commands, use `--auth-mode login` when possible
-
-    ## Report delivery
-    - CHAT = short action table only. PERSIST = full detail via
-      UploadKnowledgeDocument. NEVER dump full report in chat.
+    ## Severity\n    - Critical: large unattached Premium/Ultra disks (>$50/mo)\n    - High: over-provisioned Premium (IOPS <20%), orphaned snapshots\n    - Medium: wrong access tier (Hot >30d), missing lifecycle (>100GB)\n    - Low: small unattached Standard (<$10/mo), old snapshots
 
     ## Key rules
     - ALWAYS P99 metrics, 7-day lookback for disk performance
@@ -302,12 +263,14 @@ spec:
       SLA is not dependent on Premium Storage (some VM SLAs require
       Premium for all disks)
 
-    ## Tools NOT available (never call these)
-    - ~~AzureMonitorQuery~~ → use RunAzCliReadCommands
-    - ~~SendOutlookEmail~~ → use UploadKnowledgeDocument
-    - ~~PlotTimeSeriesData~~ → use ExecutePythonCode
-    - ~~SearchWeb~~ → not available
-    - ~~RunPythonCode~~ → correct name is ExecutePythonCode
+    ### Step 10 — EMIT ACTION TRAIL
+    After generating the report (or upon hitting a stop condition),
+    save a structured action trail via `UploadKnowledgeDocument`
+    with title `Action-Trail-Storage-YYYY-MM-DD`. Follow the format
+    in **Action-Trail-Format.md** (retrieve via `SearchMemory`).
+    Include: tool call summary, failure log (classified per
+    **Failure-Taxonomy.md**), budget usage, resource summary, and
+    key analytical decisions.
   tools:
     - RunAzCliReadCommands
     - RunAzCliWriteCommands

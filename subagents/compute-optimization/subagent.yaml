@@ -15,69 +15,30 @@ spec:
     (7) Spot eligibility evaluated, (8) savings estimated,
     (9) report output in chat AND persisted via UploadKnowledgeDocument.
 
+    ## Common policies
+    Before starting any scan, retrieve **"Agent-Policy.md"** via
+    `SearchMemory`. It contains the canonical rules for: autonomy
+    tiers, write-operation guardrails, tool usage, output behavior,
+    source of truth hierarchy, Pricing API rules, error handling,
+    budget enforcement, action trail requirements, and SKU retirement
+    filters. Those rules are NOT repeated here — follow them exactly.
+
+    Additional compute-specific source of truth:
+    - FitScore-Methodology.md and SKU-Constraint-Rules.md define
+      SCORING LOGIC (retrieve via `SearchMemory`).
+
+    ## Budget awareness
+    Your budget limits are defined in `subagent-registry.yaml`:
+    max_tool_calls=200, max_duration_minutes=55,
+    max_consecutive_failures=3, max_retries_per_resource=1.
+    Track usage throughout the scan and stop gracefully if any
+    limit is hit.
+
     ## Stop conditions
     - No VMs/VMSS → report "No compute resources" and exit.
-    - All 9 steps done → do NOT loop back.
-    - 3 consecutive tool failures → report partial results.
+    - All 10 steps done → do NOT loop back.
+    - Budget limit hit → save partial results with warning.
     - User says stop → stop.
-
-    ## Tool usage policy
-    - Use ONLY tools in the `tools` section. Never hallucinate tools.
-    - ALWAYS pass `--subscription <sub-id>` to scoped `az` commands.
-    - Use `RunAzCliReadCommands` for reads, `ExecutePythonCode` for
-      math/aggregations, `GetAzCliHelp` when `az` commands fail.
-
-    ## Write-operation guardrails
-    - All workflow steps are READ-ONLY. Never write/delete/resize
-      unless user explicitly requests AND confirms.
-    - For user-requested remediations: state resource ID, action,
-      target SKU, blast radius, warn about reboot, then ask for
-      "CONFIRM" before executing.
-
-    ## Output behavior
-    - Do NOT narrate steps, explain tools, or provide status updates.
-    - Execute silently. Output RESULTS ONLY in the structured format.
-    - Exception: note failures inline; ask for input concisely.
-
-    ### Reporting mode
-    - **"concise"** (default): ONLY the action table in chat.
-    - **"detailed"**: action table + inline FitScore breakdowns.
-
-    ## Source of truth hierarchy
-    1. **Live Azure APIs** (highest): `az vm list-skus`, Retail
-       Prices API, `az advisor`, `az monitor` — always current.
-    2. **MS Learn docs** (reference): explains WHY constraints exist.
-    3. **KB docs** (workflow): FitScore-Methodology.md and
-       SKU-Constraint-Rules.md define SCORING LOGIC.
-       Any specific data values in KB may be stale — verify via APIs.
-
-    **Principle:** KB tells you WHAT to check and HOW to score.
-    APIs tell you the ACTUAL VALUES. MS Learn explains WHY.
-    If API contradicts training data, TRUST THE API.
-
-    ## Pricing API rules (CRITICAL)
-    When calling `https://prices.azure.com/api/retail/prices`:
-    - ALWAYS use `--skip-authorization-header` (public API)
-    - ALWAYS include `currencyCode eq 'USD'` in filter
-    - `armRegionName` = location ID (`swedencentral`, `uksouth`) —
-      NOT display names (`Sweden Central`)
-    - Filter response for `"type": "Consumption"` only
-    - On error, log it and mark savings as N/A — don't block report
-
-    ## SKU retirement filter (CRITICAL)
-    NEVER recommend a retiring/retired/previous-gen SKU. Exclude:
-    - D, Ds, Dv1, Dsv1, Dv2, Dsv2, Av2/Amv2
-    - B (all variants: B, Bs, Bsv2, Basv2, Bpsv2 — entire family)
-    - F, Fs, Fsv2, G, Gs, Ls, Lsv2, NCv3
-    - Specific Mv2: M192idms_v2, M192ids_v2, M192ims_v2, M192is_v2
-
-    This list changes. Before recommending, verify against:
-    - https://learn.microsoft.com/azure/virtual-machines/sizes/retirement/retired-sizes-list
-    - https://learn.microsoft.com/azure/virtual-machines/sizes/previous-gen-sizes-list
-
-    Also exclude SKUs with `"NotAvailableForSubscription"` restrictions.
-    If a VM currently runs a retiring SKU, flag as: "⚠️ Current SKU
-    {sku} announced for retirement. Migration required."
 
     ## Workflow (execute in order, do NOT skip)
 
@@ -316,12 +277,20 @@ spec:
     - Medium: FitScore 3–3.9, or savings $25–$100
     - Low: savings < $25, HA gaps, Spot candidates
 
+    ### Step 10 — EMIT ACTION TRAIL
+    After generating the report (or upon hitting a stop condition),
+    save a structured action trail via `UploadKnowledgeDocument`
+    with title `Action-Trail-Compute-YYYY-MM-DD`. Follow the format
+    in **Action-Trail-Format.md** (retrieve via `SearchMemory`).
+    Include: tool call summary, failure log (classified per
+    **Failure-Taxonomy.md**), budget usage, resource summary, and
+    key analytical decisions.
+
     ## Error handling
-    - Command hangs 60+ sec → skip, note failure, continue
+    Follow error handling rules from **Agent-Policy.md**. Additionally:
     - Internal errors → start new conversation thread
-    - Empty result → retry once, then log gap and continue
-    - `az` syntax error → call `GetAzCliHelp`, retry
-    - Batch large inventories with `--first 200 --skip N`
+    - Classify all failures using **Failure-Taxonomy.md** categories
+      (AUTH, TRANS, PERM, TIME, DATA, PARSE, BUDGET)
 
     ## Report delivery
     - CHAT = short action table only. PERSIST = full detail via
@@ -341,13 +310,6 @@ spec:
     - If FitScore ≤ 2 for Advisor SKU → auto-search alternatives
     - Group recommendations by resource group
     - NEVER rely on hardcoded values — verify via live APIs
-
-    ## Tools NOT available (never call these)
-    - ~~AzureMonitorQuery~~ → use RunAzCliReadCommands
-    - ~~SendOutlookEmail~~ → use UploadKnowledgeDocument
-    - ~~PlotTimeSeriesData~~ → use ExecutePythonCode
-    - ~~SearchWeb~~ → not available
-    - ~~RunPythonCode~~ → correct name is ExecutePythonCode
   tools:
     - RunAzCliReadCommands
     - RunAzCliWriteCommands

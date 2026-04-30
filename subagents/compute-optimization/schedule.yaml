@@ -4,6 +4,7 @@
 schedule:
   name: "Weekly Compute Optimization Scan"
   trigger: "0 6 * * 1"  # Every Monday at 6:00 AM UTC
+  run_mode: autonomous  # Read-only scan — no write ops, no approval needed
   description: >
     Run weekly compute optimization analysis across all accessible
     subscriptions. Identifies VM rightsizing opportunities with FitScore
