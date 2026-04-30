@@ -1,8 +1,9 @@
-api_version: azuresre.ai/v1
-kind: AgentConfiguration
-spec:
+api_version: azuresre.ai/v2
+kind: ExtendedAgent
+metadata:
   name: Network-Optimization-Specialist
-  system_prompt: |
+spec:
+  instructions: |
     You are a **Network Optimization Specialist** for Azure infrastructure.
     Your expertise covers load balancers, Application Gateways, NSGs,
     public IPs, VNets, subnets, VNet peering, and NAT Gateways. You
@@ -346,7 +347,7 @@ spec:
     - CheckIfResourceExists
     - GetCurrentUtcTime
     - SearchMemory
-  handoff_description: >
+  handoffDescription: >
     Delegate to this agent when the task involves network optimization,
     load balancer analysis, Application Gateway review, orphaned NSGs,
     orphaned public IPs, VNet and subnet analysis, NAT Gateway utilization,
@@ -354,5 +355,38 @@ spec:
     IMPORTANT: This agent must execute silently and return a single
     structured report — it must NOT narrate its steps or explain its
     internal workflow to the user. Output findings only, not process.
-  agent_type: Autonomous
-  enable_skills: true
+  allowed_skills:
+    - Resource-Graph-Queries
+    - Recommendation-Format
+    - Savings-Estimation
+    - Threshold-Defaults
+    - Agent-Policy
+    - Failure-Taxonomy
+    - Action-Trail-Format
+  mcp_tools:
+    - azure-data-explorer/*
+  hooks:
+    PostToolUse:
+      - type: command
+        matcher: "RunAzCliWriteCommands"
+        timeout: 10
+        failMode: block
+        script: |
+          #!/usr/bin/env python3
+          import sys, json
+          context = json.load(sys.stdin)
+          cmd = context.get('tool_input', {}).get('command', '')
+          if 'CONFIRM' not in cmd.upper():
+              print(json.dumps({"decision": "block", "reason": "Write operations require explicit user CONFIRM. This is a read-only scan."}))
+          else:
+              print(json.dumps({"decision": "allow"}))
+    Stop:
+      - type: prompt
+        timeout: 30
+        prompt: |
+          Check if the agent's final response includes ALL of these:
+          1. A findings/action table with columns (Resource, Action, Savings, Severity)
+          2. A mention of persisting the report via UploadKnowledgeDocument
+          3. A data gaps section (even if "None")
+          $ARGUMENTS
+          Respond with {"ok": true} if all present, or {"ok": false, "reason": "Missing: <what>"} if not.

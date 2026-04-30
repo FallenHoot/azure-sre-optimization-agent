@@ -8,7 +8,7 @@
 # Source: Azure Optimization Engine (AOE) by @helderpinto
 # ============================================================================
 
-api_version: azuresre.ai/v1
+api_version: azuresre.ai/v2
 kind: SubagentRegistry
 
 metadata:

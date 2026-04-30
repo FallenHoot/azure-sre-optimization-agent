@@ -1,8 +1,9 @@
-api_version: azuresre.ai/v1
-kind: AgentConfiguration
-spec:
+api_version: azuresre.ai/v2
+kind: ExtendedAgent
+metadata:
   name: Orchestrator-Coordinator
-  system_prompt: |
+spec:
+  instructions: |
     You are the **Orchestrator / Coordinator Agent** for the Azure SRE
     optimization platform. You do NOT perform infrastructure analysis
     directly. Instead, you aggregate results from the specialist subagents,
@@ -424,11 +425,30 @@ spec:
     - GetCurrentUtcTime
     - SearchMemory
     - SearchIncidentKnowledge
-  handoff_description: >
+  handoffDescription: >
     Delegate to this agent for cross-domain optimization coordination,
     aggregating specialist subagent results, executive summary reports,
     resolving conflicting recommendations, prioritizing actions, or
     routing optimization requests to the appropriate specialist.
     This agent executes silently and returns a structured report only.
-  agent_type: Autonomous
-  enable_skills: true
+  allowed_skills:
+    - Recommendation-Format
+    - Severity-Classification
+    - Escalation-Criteria
+    - Savings-Estimation
+    - Agent-Policy
+    - Failure-Taxonomy
+    - Action-Trail-Format
+  mcp_tools:
+    - azure-data-explorer/*    # ADX for historical trend queries
+  hooks:
+    Stop:
+      - type: prompt
+        timeout: 30
+        prompt: |
+          Check if the agent's final response includes ALL of these:
+          1. An optimization summary header with total resources scanned, findings count, and savings
+          2. A top actions table with columns (Resource, Domain, Action, Savings, Severity)
+          3. A mention of persisting the report via UploadKnowledgeDocument
+          $ARGUMENTS
+          Respond with {"ok": true} if all present, or {"ok": false, "reason": "Missing: <what>"} if not.
