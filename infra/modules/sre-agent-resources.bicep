@@ -5,13 +5,16 @@
 //   1. Log Analytics Workspace
 //   2. Application Insights (linked to Log Analytics)
 //   3. User-Assigned Managed Identity (or references an existing one)
-//   4. SRE Agent with full configuration:
+//   4. SRE Agent (API version 2026-01-01) with full configuration:
 //      - knowledgeGraphConfiguration (identity for knowledge graph operations)
 //      - actionConfiguration (identity + access level for tool execution)
 //      - logConfiguration (App Insights telemetry)
+//      - upgradeChannel (Stable or Preview)
 //   5. RBAC role assignments on the deployment resource group
 //   6. RBAC role assignments on target resource groups (if any)
 //   7. SRE Agent Administrator role for the deploying user
+//
+// API version: Microsoft.App/agents@2026-01-01
 //
 // IMPORTANT: The agent MUST have knowledgeGraphConfiguration, actionConfiguration,
 // and logConfiguration — without these, it gets permanently stuck in
@@ -41,6 +44,10 @@ param accessLevel string
 @description('Agent mode')
 @allowed(['Review', 'Autonomous', 'ReadOnly'])
 param agentMode string
+
+@description('Agent upgrade channel')
+@allowed(['Stable', 'Preview'])
+param upgradeChannel string = 'Stable'
 
 @description('Existing managed identity resource ID (empty = create new)')
 param existingManagedIdentityId string = ''
@@ -168,7 +175,7 @@ module targetRbacExisting 'role-assignments-target.bicep' = [for (targetRG, i) i
 // ─── SRE Agent (new identity path) ──────────────────────────────────────────
 
 #disable-next-line BCP081
-resource sreAgentNew 'Microsoft.App/agents@2025-05-01-preview' = if (shouldCreateIdentity) {
+resource sreAgentNew 'Microsoft.App/agents@2026-01-01' = if (shouldCreateIdentity) {
   name: agentName
   location: location
   tags: tags
@@ -194,6 +201,7 @@ resource sreAgentNew 'Microsoft.App/agents@2025-05-01-preview' = if (shouldCreat
         connectionString: applicationInsights.properties.ConnectionString
       }
     }
+    upgradeChannel: upgradeChannel
   }
   dependsOn: [
     rbacNew
@@ -204,7 +212,7 @@ resource sreAgentNew 'Microsoft.App/agents@2025-05-01-preview' = if (shouldCreat
 // ─── SRE Agent (existing identity path) ─────────────────────────────────────
 
 #disable-next-line BCP081
-resource sreAgentExisting 'Microsoft.App/agents@2025-05-01-preview' = if (!shouldCreateIdentity) {
+resource sreAgentExisting 'Microsoft.App/agents@2026-01-01' = if (!shouldCreateIdentity) {
   name: agentName
   location: location
   tags: tags
@@ -230,6 +238,7 @@ resource sreAgentExisting 'Microsoft.App/agents@2025-05-01-preview' = if (!shoul
         connectionString: applicationInsights.properties.ConnectionString
       }
     }
+    upgradeChannel: upgradeChannel
   }
   dependsOn: [
     rbacExisting

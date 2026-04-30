@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.40.2.10011",
-      "templateHash": "15177215144010199014"
+      "version": "0.41.2.15936",
+      "templateHash": "6608547376724137380"
     }
   },
   "parameters": {
@@ -62,6 +62,17 @@
       ],
       "metadata": {
         "description": "Agent execution mode"
+      }
+    },
+    "upgradeChannel": {
+      "type": "string",
+      "defaultValue": "Stable",
+      "allowedValues": [
+        "Stable",
+        "Preview"
+      ],
+      "metadata": {
+        "description": "Agent upgrade channel"
       }
     },
     "existingManagedIdentityId": {
@@ -131,6 +142,9 @@
           "agentMode": {
             "value": "[parameters('agentMode')]"
           },
+          "upgradeChannel": {
+            "value": "[parameters('upgradeChannel')]"
+          },
           "existingManagedIdentityId": {
             "value": "[parameters('existingManagedIdentityId')]"
           },
@@ -150,8 +164,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.40.2.10011",
-              "templateHash": "9506393266215550273"
+              "version": "0.41.2.15936",
+              "templateHash": "11742847107287583098"
             }
           },
           "parameters": {
@@ -192,6 +206,17 @@
               ],
               "metadata": {
                 "description": "Agent mode"
+              }
+            },
+            "upgradeChannel": {
+              "type": "string",
+              "defaultValue": "Stable",
+              "allowedValues": [
+                "Stable",
+                "Preview"
+              ],
+              "metadata": {
+                "description": "Agent upgrade channel"
               }
             },
             "existingManagedIdentityId": {
@@ -319,7 +344,7 @@
             {
               "condition": "[variables('shouldCreateIdentity')]",
               "type": "Microsoft.App/agents",
-              "apiVersion": "2025-05-01-preview",
+              "apiVersion": "2026-01-01",
               "name": "[parameters('agentName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
@@ -344,7 +369,8 @@
                     "appId": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').AppId]",
                     "connectionString": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
                   }
-                }
+                },
+                "upgradeChannel": "[parameters('upgradeChannel')]"
               },
               "dependsOn": [
                 "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]",
@@ -356,7 +382,7 @@
             {
               "condition": "[not(variables('shouldCreateIdentity'))]",
               "type": "Microsoft.App/agents",
-              "apiVersion": "2025-05-01-preview",
+              "apiVersion": "2026-01-01",
               "name": "[parameters('agentName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
@@ -381,7 +407,8 @@
                     "appId": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').AppId]",
                     "connectionString": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
                   }
-                }
+                },
+                "upgradeChannel": "[parameters('upgradeChannel')]"
               },
               "dependsOn": [
                 "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]",
@@ -449,8 +476,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.40.2.10011",
-                      "templateHash": "17657639728581387981"
+                      "version": "0.41.2.15936",
+                      "templateHash": "5494449985936796496"
                     }
                   },
                   "parameters": {
@@ -550,8 +577,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.40.2.10011",
-                      "templateHash": "17657639728581387981"
+                      "version": "0.41.2.15936",
+                      "templateHash": "5494449985936796496"
                     }
                   },
                   "parameters": {
@@ -630,7 +657,7 @@
             },
             "agentEndpoint": {
               "type": "string",
-              "value": "[coalesce(if(variables('shouldCreateIdentity'), reference(resourceId('Microsoft.App/agents', parameters('agentName')), '2025-05-01-preview').agentEndpoint, reference(resourceId('Microsoft.App/agents', parameters('agentName')), '2025-05-01-preview').agentEndpoint), 'pending')]"
+              "value": "[coalesce(if(variables('shouldCreateIdentity'), reference(resourceId('Microsoft.App/agents', parameters('agentName')), '2026-01-01').agentEndpoint, reference(resourceId('Microsoft.App/agents', parameters('agentName')), '2026-01-01').agentEndpoint), 'pending')]"
             },
             "portalUrl": {
               "type": "string",

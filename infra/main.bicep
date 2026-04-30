@@ -4,9 +4,14 @@
 // Deploys an Azure SRE Agent with full configuration:
 //   - User-Assigned Managed Identity (for knowledge graph + actions)
 //   - Log Analytics Workspace + Application Insights (for telemetry)
-//   - SRE Agent with knowledgeGraphConfiguration, actionConfiguration, logConfiguration
+//   - SRE Agent (API version 2026-01-01) with:
+//       knowledgeGraphConfiguration, actionConfiguration, logConfiguration,
+//       defaultModel, upgradeChannel
 //   - RBAC role assignments (Reader, Monitoring Reader, Log Analytics Reader)
 //   - SRE Agent Administrator role for the deploying user
+//
+// API version: Microsoft.App/agents@2026-01-01
+// Subagent YAML format: azuresre.ai/v2 (ExtendedAgent)
 //
 // Based on the official microsoft/sre-agent Bicep samples:
 //   https://github.com/microsoft/sre-agent/tree/main/samples/bicep-deployment
@@ -45,6 +50,10 @@ param accessLevel string = 'High'
 @allowed(['Review', 'Autonomous', 'ReadOnly'])
 param agentMode string = 'Review'
 
+@description('Agent upgrade channel')
+@allowed(['Stable', 'Preview'])
+param upgradeChannel string = 'Stable'
+
 @description('Optional: existing User-Assigned Managed Identity resource ID. If empty, a new one is created.')
 param existingManagedIdentityId string = ''
 
@@ -80,6 +89,7 @@ module sreAgentResources 'modules/sre-agent-resources.bicep' = {
     subscriptionId: subscriptionId
     accessLevel: accessLevel
     agentMode: agentMode
+    upgradeChannel: upgradeChannel
     existingManagedIdentityId: existingManagedIdentityId
     targetResourceGroups: targetResourceGroups
     targetSubscriptions: targetSubscriptions

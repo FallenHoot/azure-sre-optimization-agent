@@ -17,6 +17,9 @@
     "agentMode": {
       "value": "Review"
     },
+    "upgradeChannel": {
+      "value": "Stable"
+    },
     "targetResourceGroups": {
       "value": []
     }
